@@ -86,17 +86,17 @@ typedef void (*GLLogFunction) (GLuint program,
     if ((self = [super init]) )
     {
         _program = glCreateProgram();
-		
+
 		_vertShader = _fragShader = 0;
-		
+
 		if( vShaderByteArray ) {
-			
+
 			if (![self compileShader:&_vertShader
 								type:GL_VERTEX_SHADER
 						   byteArray:vShaderByteArray] )
 				CCLOG(@"cocos2d: ERROR: Failed to compile vertex shader");
 		}
-		
+
         // Create and compile fragment shader
 		if( fShaderByteArray ) {
 			if (![self compileShader:&_fragShader
@@ -105,16 +105,16 @@ typedef void (*GLLogFunction) (GLuint program,
 
 				CCLOG(@"cocos2d: ERROR: Failed to compile fragment shader");
 		}
-		
+
 		if( _vertShader )
 			glAttachShader(_program, _vertShader);
-		
+
 		if( _fragShader )
 			glAttachShader(_program, _fragShader);
-		
+
 		_hashForUniforms = NULL;
     }
-	
+
     return self;
 }
 
@@ -140,6 +140,8 @@ typedef void (*GLLogFunction) (GLuint program,
 	return [NSString stringWithFormat:@"<%@ = %p | Program = %i, VertexShader = %i, FragmentShader = %i>", [self class], self, _program, _vertShader, _fragShader];
 }
 
+#define EXTENSION_STRING "#extension GL_OES_standard_derivatives : enable"
+static NSString * g_extensionStr = @EXTENSION_STRING;
 
 - (BOOL)compileShader:(GLuint *)shader type:(GLenum)type byteArray:(const GLchar *)source
 {
@@ -147,41 +149,55 @@ typedef void (*GLLogFunction) (GLuint program,
 
     if (!source)
         return NO;
-		
-		const GLchar *sources[] = {
+
+    // BEGIN workaround for Xcode 7 bug
+    BOOL hasExtension = NO;
+    NSString *sourceStr = [NSString stringWithUTF8String:source];
+    //if([sourceStr containsString:g_extensionStr]) {
+    if ([sourceStr rangeOfString:g_extensionStr].location != NSNotFound) {
+        hasExtension = YES;
+        NSArray *strs = [sourceStr componentsSeparatedByString:g_extensionStr];
+        assert(strs.count == 2);
+        sourceStr = [strs componentsJoinedByString:@"\n"];
+        source = (GLchar *)[sourceStr UTF8String];
+    }
+
+    const GLchar *sources[] = {
+        (hasExtension ? EXTENSION_STRING "\n" : ""),
 #ifdef __CC_PLATFORM_IOS
-			(type == GL_VERTEX_SHADER ? "precision highp float;\n" : "precision mediump float;\n"),
+        (type == GL_VERTEX_SHADER ? "precision highp float;\n" : "precision mediump float;\n"),
 #endif
-			"uniform mat4 CC_PMatrix;\n"
-			"uniform mat4 CC_MVMatrix;\n"
-			"uniform mat4 CC_MVPMatrix;\n"
-			"uniform vec4 CC_Time;\n"
-			"uniform vec4 CC_SinTime;\n"
-			"uniform vec4 CC_CosTime;\n"
-			"uniform vec4 CC_Random01;\n"
-			"//CC INCLUDES END\n\n",
-			source,
-		};
-		
+        "uniform mat4 CC_PMatrix;\n"
+        "uniform mat4 CC_MVMatrix;\n"
+        "uniform mat4 CC_MVPMatrix;\n"
+        "uniform vec4 CC_Time;\n"
+        "uniform vec4 CC_SinTime;\n"
+        "uniform vec4 CC_CosTime;\n"
+        "uniform vec4 CC_Random01;\n"
+        "//CC INCLUDES END\n\n",
+        source,
+    };
+    // END workaround for Xcode 7 bug
+
     *shader = glCreateShader(type);
     glShaderSource(*shader, sizeof(sources)/sizeof(*sources), sources, NULL);
     glCompileShader(*shader);
-	
+
     glGetShaderiv(*shader, GL_COMPILE_STATUS, &status);
-	
+
 	if( ! status ) {
 		GLsizei length;
 		glGetShaderiv(*shader, GL_SHADER_SOURCE_LENGTH, &length);
 		GLchar src[length];
-		
+
 		glGetShaderSource(*shader, length, NULL, src);
 		CCLOG(@"cocos2d: ERROR: Failed to compile shader:\n%s", src);
-		
+
 		if( type == GL_VERTEX_SHADER )
 			CCLOG(@"cocos2d: %@", [self vertexShaderLog] );
 		else
 			CCLOG(@"cocos2d: %@", [self fragmentShaderLog] );
-		
+
 		abort();
 	}
     return ( status == GL_TRUE );
@@ -201,7 +217,7 @@ typedef void (*GLLogFunction) (GLuint program,
 	_uniforms[  kCCUniformPMatrix] = glGetUniformLocation(_program, kCCUniformPMatrix_s);
 	_uniforms[ kCCUniformMVMatrix] = glGetUniformLocation(_program, kCCUniformMVMatrix_s);
 	_uniforms[kCCUniformMVPMatrix] = glGetUniformLocation(_program, kCCUniformMVPMatrix_s);
-	
+
 	_uniforms[kCCUniformTime] = glGetUniformLocation(_program, kCCUniformTime_s);
 	_uniforms[kCCUniformSinTime] = glGetUniformLocation(_program, kCCUniformSinTime_s);
 	_uniforms[kCCUniformCosTime] = glGetUniformLocation(_program, kCCUniformCosTime_s);
@@ -221,7 +237,7 @@ typedef void (*GLLogFunction) (GLuint program,
 
 
 	[self use];
-	
+
 	// Since sample most probably won't change, set it to 0 now.
 	[self setUniformLocation:_uniforms[kCCUniformSampler] withI1:0];
 }
@@ -231,10 +247,10 @@ typedef void (*GLLogFunction) (GLuint program,
 -(BOOL) link
 {
     NSAssert(_program != 0, @"Cannot link invalid program");
-	
+
     GLint status = GL_TRUE;
     glLinkProgram(_program);
-	
+
     if (_vertShader)
         glDeleteShader(_vertShader);
 
@@ -242,18 +258,18 @@ typedef void (*GLLogFunction) (GLuint program,
         glDeleteShader(_fragShader);
 
     _vertShader = _fragShader = 0;
-	
+
 #if DEBUG
     glGetProgramiv(_program, GL_LINK_STATUS, &status);
     NSString* log = self.programLog;
-	
+
     if (status == GL_FALSE) {
         NSLog(@"cocos2d: ERROR: Failed to link program: %i - %@", _program, log);
         ccGLDeleteProgram( _program );
         _program = 0;
     }
 #endif
-	
+
     return (status == GL_TRUE);
 }
 
@@ -326,7 +342,7 @@ typedef void (*GLLogFunction) (GLuint program,
 		// value
 		element->value = malloc( bytes );
 		memcpy(element->value, data, bytes );
-		
+
 		HASH_ADD_INT(_hashForUniforms, location, element);
 	}
 	else
@@ -344,14 +360,14 @@ typedef void (*GLLogFunction) (GLuint program,
 {
     NSAssert(name != nil, @"Invalid uniform name" );
     NSAssert(_program != 0, @"Invalid operation. Cannot get uniform location when program is not initialized");
-    
+
     return glGetUniformLocation(_program, [name UTF8String]);
 }
 
 -(void) setUniformLocation:(GLint)location withI1:(GLint)i1
 {
 	BOOL updated =  [self updateUniformLocation:location withData:&i1 sizeOfData:sizeof(i1)*1];
-	
+
 	if( updated )
 		glUniform1i( (GLint)location, i1);
 }
@@ -359,7 +375,7 @@ typedef void (*GLLogFunction) (GLuint program,
 -(void) setUniformLocation:(GLint)location withF1:(GLfloat)f1
 {
 	BOOL updated =  [self updateUniformLocation:location withData:&f1 sizeOfData:sizeof(f1)*1];
-	
+
 	if( updated )
 		glUniform1f( (GLint)location, f1);
 }
@@ -368,7 +384,7 @@ typedef void (*GLLogFunction) (GLuint program,
 {
 	GLfloat floats[2] = {f1,f2};
 	BOOL updated =  [self updateUniformLocation:location withData:floats sizeOfData:sizeof(floats)];
-	
+
 	if( updated )
 		glUniform2f( (GLint)location, f1, f2);
 }
@@ -377,7 +393,7 @@ typedef void (*GLLogFunction) (GLuint program,
 {
 	GLfloat floats[3] = {f1,f2,f3};
 	BOOL updated =  [self updateUniformLocation:location withData:floats sizeOfData:sizeof(floats)];
-	
+
 	if( updated )
 		glUniform3f( (GLint)location, f1, f2, f3);
 }
@@ -386,7 +402,7 @@ typedef void (*GLLogFunction) (GLuint program,
 {
 	GLfloat floats[4] = {f1,f2,f3,f4};
 	BOOL updated =  [self updateUniformLocation:location withData:floats sizeOfData:sizeof(floats)];
-	
+
 	if( updated )
 		glUniform4f( (GLint)location, f1, f2, f3,f4);
 }
@@ -394,7 +410,7 @@ typedef void (*GLLogFunction) (GLuint program,
 -(void) setUniformLocation:(GLint)location with2fv:(GLfloat*)floats count:(NSUInteger)numberOfArrays
 {
 	BOOL updated =  [self updateUniformLocation:location withData:floats sizeOfData:sizeof(float)*2*numberOfArrays];
-	
+
 	if( updated )
 		glUniform2fv( (GLint)location, (GLsizei)numberOfArrays, floats );
 }
@@ -402,7 +418,7 @@ typedef void (*GLLogFunction) (GLuint program,
 -(void) setUniformLocation:(GLint)location with3fv:(GLfloat*)floats count:(NSUInteger)numberOfArrays
 {
 	BOOL updated =  [self updateUniformLocation:location withData:floats sizeOfData:sizeof(float)*3*numberOfArrays];
-	
+
 	if( updated )
 		glUniform3fv( (GLint)location, (GLsizei)numberOfArrays, floats );
 }
@@ -410,7 +426,7 @@ typedef void (*GLLogFunction) (GLuint program,
 -(void) setUniformLocation:(GLint)location with4fv:(GLvoid*)floats count:(NSUInteger)numberOfArrays
 {
 	BOOL updated =  [self updateUniformLocation:location withData:floats sizeOfData:sizeof(float)*4*numberOfArrays];
-	
+
 	if( updated )
 		glUniform4fv( (GLint)location, (GLsizei)numberOfArrays, floats );
 }
@@ -419,7 +435,7 @@ typedef void (*GLLogFunction) (GLuint program,
 -(void) setUniformLocation:(GLint)location withMatrix4fv:(GLvoid*)matrixArray count:(NSUInteger)numberOfMatrices
 {
 	BOOL updated =  [self updateUniformLocation:location withData:matrixArray sizeOfData:sizeof(float)*16*numberOfMatrices];
-	
+
 	if( updated )
 		glUniformMatrix4fv( (GLint)location, (GLsizei)numberOfMatrices, GL_FALSE, matrixArray);
 }
@@ -431,7 +447,7 @@ typedef void (*GLLogFunction) (GLuint program,
 
 	kmGLGetMatrix(KM_GL_PROJECTION, &matrixP );
 	kmGLGetMatrix(KM_GL_MODELVIEW, &matrixMV );
-	
+
 	if( _flags.usesMVP) {
 		kmMat4 matrixMVP;
 		kmMat4Multiply(&matrixMVP, &matrixP, &matrixMV);
@@ -449,12 +465,12 @@ typedef void (*GLLogFunction) (GLuint program,
 		// Cocos2D doesn't store a high precision time value, so this will have to do.
 		// Getting Mach time per frame per shader using time could be extremely expensive.
 		ccTime time = director.totalFrames*director.animationInterval;
-		
+
 		[self setUniformLocation:_uniforms[kCCUniformTime] withF1:time/10.0 f2:time f3:time*2 f4:time*4];
 		[self setUniformLocation:_uniforms[kCCUniformSinTime] withF1:sinf(time/8.0) f2:sinf(time/4.0) f3:sinf(time/2.0) f4:sinf(time)];
 		[self setUniformLocation:_uniforms[kCCUniformCosTime] withF1:cosf(time/8.0) f2:cosf(time/4.0) f3:cosf(time/2.0) f4:cosf(time)];
 	}
-	
+
 	if(_flags.usesRandom)
 		[self setUniformLocation:_uniforms[kCCUniformRandom01] withF1:CCRANDOM_0_1() f2:CCRANDOM_0_1() f3:CCRANDOM_0_1() f4:CCRANDOM_0_1()];
 }
